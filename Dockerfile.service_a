@@ -1,0 +1,15 @@
+FROM golang:latest
+
+WORKDIR /app
+
+COPY go.mod ./
+COPY go.sum ./
+RUN go mod download
+
+COPY . .
+
+WORKDIR /app/internal/infra/server/service_a
+
+RUN go build -o service_a .
+
+CMD ["./service_a"]

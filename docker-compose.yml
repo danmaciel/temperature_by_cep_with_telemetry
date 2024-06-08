@@ -1,0 +1,43 @@
+version: '3'
+
+networks:
+  rede_a:
+
+services:
+  zipkin:
+    image: openzipkin/zipkin-slim:latest
+    container_name: zipkin
+    ports:
+      - 9411:9411
+    networks:
+      - rede_a
+
+  service_a:
+    build:
+      context: .
+      dockerfile: Dockerfile.service_a
+    environment:
+      - HTTP_PORT=:8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      - zipkin
+    networks:
+      - rede_a
+
+  service_b:
+    build:
+      context: .
+      dockerfile: Dockerfile.service_b
+    ports:
+      - "8181:8181"
+    depends_on:
+      - zipkin
+      - service_a
+    environment:
+      - HTTP_PORT=:8181
+      - WEATHER_API_KEY=
+      - OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - TRACE_NAME=TEMPERATURA_POR_CEP_E_TELEMETRIA
+    networks:
+      - rede_a

@@ -1,0 +1,22 @@
+FROM golang:latest
+
+WORKDIR /app
+
+# Copia os arquivos go.mod e go.sum para o diretório /app
+COPY go.mod ./
+COPY go.sum ./
+
+# Baixa as dependências
+RUN go mod download
+
+# Copia todo o código-fonte para o container
+COPY . .
+
+# Define o diretório de trabalho para o serviço B
+WORKDIR /app/internal/infra/server/service_b
+
+# Compila a aplicação
+RUN go build -o service_b .
+
+# Define o comando a ser executado quando o container iniciar
+CMD ["./service_b"]
