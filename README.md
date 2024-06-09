@@ -18,12 +18,12 @@ temp_k = temperatura em Kelvin
 
 Exemplo de saída:
 ```
-    {
+{
     "city": "Londrina",
     "temp_c": 25.2,
     "temp_f": 77.36,
     "temp_k": 298.2
-    }
+}
 ```
 
 ## O que é necessário para rodar?
@@ -46,9 +46,9 @@ docker-compose up
 Com os serviços iniciados, faça uma requisição do tipo POST para http://localhost:8080/cep passando no corpo o parâmetro CEP no formato:
 
 ```
-    {
-       "cep": "86027410"
-    }
+{
+    "cep": "86027410"
+}
 ```
 
 Para acessar o ZipKin para a exibição do tracer, abra no browser o endereço 
