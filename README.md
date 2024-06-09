@@ -43,7 +43,7 @@ Na raiz da aplicação, edite o arquivo docker-compose.yml adicionando em servic
 docker-compose up
 ```
 
-Com os serviços iniciados, faça uma requisição do tipo POST para http://localhost:8080/cep passando no corpo o parâmetro CEP no formato:
+Com os serviços iniciados, faça uma requisição do tipo POST para http://localhost:8080/cep passando no corpo o parâmetro CEP na estrutura:
 
 ```
 {
@@ -51,7 +51,7 @@ Com os serviços iniciados, faça uma requisição do tipo POST para http://loca
 }
 ```
 
-Para acessar o ZipKin para a exibição do tracer, abra no browser o endereço 
+Para acessar o ZipKin para a exibição do tracer, abra no browser com o endereço 
 
 ```
 http://localhost:9411/zipkin/
