@@ -1,4 +1,4 @@
-# API em Golang que retorna a temperatura com telemetria com OpenTelemetry e Zipkin
+# API em Golang que retorna a temperatura com telemetria
 
 Sistema que recebe um CEP e retorna a temperatura em Celsius, Fahrenheit e Kelvin, por meio de um CEP de entrada e utiliza telemetria via OpenTelemetry e Zipkin
 
