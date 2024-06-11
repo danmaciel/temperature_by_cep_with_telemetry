@@ -12,6 +12,17 @@ services:
     networks:
       - rede_a
 
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    restart: always
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./.docker/otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+    networks:
+      - rede_a
+
   service_a:
     build:
       context: .
@@ -20,8 +31,6 @@ services:
       - HTTP_PORT=:8080
     ports:
       - "8080:8080"
-    depends_on:
-      - zipkin
     networks:
       - rede_a
 
@@ -31,13 +40,15 @@ services:
       dockerfile: Dockerfile.service_b
     ports:
       - "8181:8181"
-    depends_on:
-      - zipkin
-      - service_a
     environment:
       - HTTP_PORT=:8181
       - WEATHER_API_KEY=
       - OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
-      - TRACE_NAME=TEMPERATURA_POR_CEP_E_TELEMETRIA
+      - TELEMETRY_SERVICE_NAME=TEMPERATURA_POR_CEP_E_TELEMETRIA
+    depends_on:
+      - zipkin
+      - otel-collector
+      - service_a
     networks:
       - rede_a
+    

@@ -14,10 +14,13 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/zipkin"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/dto"
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/entity"
@@ -36,8 +39,17 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
-	shutdown := initTracer()
-	defer shutdown()
+	shutdown, err := initProvider()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer func() {
+		if err := shutdown(ctx); err != nil {
+			log.Fatal("failed to shutdown TracerProvider: %w", err)
+		}
+	}()
+
 	tracer := otel.Tracer(os.Getenv("TRACE_NAME"))
 	r.Post("/cep", func(w http.ResponseWriter, r *http.Request) {
 		var cep entity.Cep
@@ -124,27 +136,42 @@ func GetResponseHeader(w http.ResponseWriter) {
 	w.Header().Add("charset", "utf-8")
 }
 
-func initTracer() func() {
-	endpoint := os.Getenv("OTEL_EXPORTER_ZIPKIN_ENDPOINT")
-	if endpoint == "" {
-		panic("error! Zipkin without endpoint")
-	}
+func initProvider() (func(context.Context) error, error) {
+	ctx := context.Background()
 
-	exporter, err := zipkin.New(endpoint)
-	if err != nil {
-		log.Fatalf("failed to create zipkin exporter: %v", err)
-	}
-
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceNameKey.String("temperatura_por_cep"),
-		)),
+	res, err := resource.New(ctx,
+		resource.WithAttributes(
+			semconv.ServiceName(os.Getenv("TELEMETRY_SERVICE_NAME")),
+		),
 	)
-	otel.SetTracerProvider(tp)
-
-	return func() {
-		_ = tp.Shutdown(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	conn, err := grpc.NewClient(os.Getenv("OTEL_EXPORTER_ZIPKIN_ENDPOINT"),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gRPC connection to collector: %w", err)
+	}
+
+	traceExporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create trace exporter: %w", err)
+	}
+
+	bsp := sdktrace.NewBatchSpanProcessor(traceExporter)
+	tracerProvider := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithResource(res),
+		sdktrace.WithSpanProcessor(bsp),
+	)
+	otel.SetTracerProvider(tracerProvider)
+
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	return tracerProvider.Shutdown, nil
 }
