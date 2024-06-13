@@ -14,8 +14,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/entity"
+	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/provider"
 )
 
 func main() {
@@ -25,6 +29,16 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
+
+	shutdown, err := provider.InitProvider("Service_A")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := shutdown(ctx); err != nil {
+			log.Fatal("failed to shutdown TracerProvider: %w", err)
+		}
+	}()
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -43,7 +57,8 @@ func main() {
 
 			return
 		}
-		runServiceB(w, cep)
+
+		runServiceB(ctx, w, cep)
 	})
 
 	go func() {
@@ -65,14 +80,27 @@ func main() {
 	defer shutdownCancel()
 }
 
-func runServiceB(w http.ResponseWriter, cep entity.Cep) {
-	url := "http://service_b:8181/cep" // Usando o nome do serviço no docker-compose
+func runServiceB(ctx context.Context, w http.ResponseWriter, cep entity.Cep) {
+
+	url := "http://service_b:8181/cep"
 	result, _ := json.Marshal(cep)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(result))
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(result))
 	if err != nil {
-		http.Error(w, "Erro ao enviar CEP para o serviço B"+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Erro ao criar a request para o Service_B"+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
+
+	client := http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
+	resp, err := client.Do(req)
+
+	if err != nil {
+		http.Error(w, "Erro ao enviar CEP para o Service_B"+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	defer resp.Body.Close()
 	w.WriteHeader(resp.StatusCode)
 	_, err = io.Copy(w, resp.Body)

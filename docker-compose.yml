@@ -43,7 +43,7 @@ services:
     environment:
       - HTTP_PORT=:8181
       - WEATHER_API_KEY=
-      - OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - OTEL_COLLECTOR_ENDPOINT=otel-collector:4317
       - TELEMETRY_SERVICE_NAME=TEMPERATURA_POR_CEP_E_TELEMETRIA
     depends_on:
       - zipkin
