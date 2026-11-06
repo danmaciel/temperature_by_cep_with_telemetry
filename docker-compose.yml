@@ -1,54 +1,44 @@
-version: '3'
-
-networks:
-  rede_a:
-
 services:
   zipkin:
-    image: openzipkin/zipkin-slim:latest
-    container_name: zipkin
+    image: openzipkin/zipkin-slim:3.6.1
     ports:
-      - 9411:9411
-    networks:
-      - rede_a
+      - "127.0.0.1:9411:9411"
+    networks: [telemetry]
 
   otel-collector:
-    image: otel/opentelemetry-collector:latest
-    restart: always
-    command: ["--config=/etc/otel-collector-config.yaml"]
+    image: otel/opentelemetry-collector-contrib:0.164.1
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
-      - ./.docker/otel-collector-config.yaml:/etc/otel-collector-config.yaml
-    ports:
-      - "4317:4317"   # OTLP gRPC receiver
-    networks:
-      - rede_a
+      - ./.docker/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      - zipkin
+    networks: [telemetry]
+
+  service_b:
+    build:
+      context: .
+      dockerfile: Dockerfile.service_b
+    environment:
+      HTTP_PORT: ":8181"
+      WEATHER_API_KEY: "${WEATHER_API_KEY:?Set WEATHER_API_KEY in a local .env file}"
+      OTEL_COLLECTOR_ENDPOINT: "otel-collector:4317"
+    depends_on:
+      - otel-collector
+    networks: [telemetry]
 
   service_a:
     build:
       context: .
       dockerfile: Dockerfile.service_a
     environment:
-      - HTTP_PORT=:8080
+      HTTP_PORT: ":8080"
+      SERVICE_B_URL: "http://service_b:8181/cep"
+      OTEL_COLLECTOR_ENDPOINT: "otel-collector:4317"
     ports:
-      - "8080:8080"
-    networks:
-      - rede_a
-
-  service_b:
-    build:
-      context: .
-      dockerfile: Dockerfile.service_b
-    ports:
-      - "8181:8181"
-    environment:
-      - HTTP_PORT=:8181
-      - WEATHER_API_KEY=
-      - OTEL_COLLECTOR_ENDPOINT=otel-collector:4317
-      - TELEMETRY_SERVICE_NAME=TEMPERATURA_POR_CEP_E_TELEMETRIA
+      - "127.0.0.1:8080:8080"
     depends_on:
-      - zipkin
-      - otel-collector
-      - service_a
-    networks:
-      - rede_a
-    
+      - service_b
+    networks: [telemetry]
+
+networks:
+  telemetry:
