@@ -32,3 +32,7 @@ jobs:
           go build ./internal/infra/server/service_b
       - name: Vet
         run: go vet ./...
+      - name: Validate Docker Compose
+        env:
+          WEATHER_API_KEY: ci-placeholder
+        run: docker compose config --quiet
