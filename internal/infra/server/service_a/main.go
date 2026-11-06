@@ -76,13 +76,19 @@ func main() {
 }
 
 func runServiceB(ctx context.Context, w http.ResponseWriter, cep entity.Cep) {
+	client := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport), Timeout: 15 * time.Second}
+	forwardToServiceB(ctx, w, cep, "http://service_b:8181/cep", client)
+}
+
+// forwardToServiceB makes the downstream endpoint injectable for regression tests.
+func forwardToServiceB(ctx context.Context, w http.ResponseWriter, cep entity.Cep, endpoint string, client *http.Client) {
 	payload, err := json.Marshal(cep)
 	if err != nil {
 		http.Error(w, "failed to encode zipcode", http.StatusInternalServerError)
 		return
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://service_b:8181/cep", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		http.Error(w, "failed to create service request", http.StatusInternalServerError)
 		return
@@ -90,7 +96,6 @@ func runServiceB(ctx context.Context, w http.ResponseWriter, cep entity.Cep) {
 	req.Header.Set("Content-Type", "application/json")
 
 	// otelhttp injects the active span context into the outgoing request.
-	client := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport), Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		http.Error(w, "downstream service unavailable", http.StatusBadGateway)
