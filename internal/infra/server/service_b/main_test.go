@@ -66,10 +66,10 @@ func TestServiceBContinuesIncomingTraceForBothLookups(t *testing.T) {
 		t.Fatal(err)
 	}
 	parent := trace.NewSpanContext(trace.SpanContextConfig{
-		TraceID: traceID,
-		SpanID: parentID,
+		TraceID:    traceID,
+		SpanID:     parentID,
 		TraceFlags: trace.FlagsSampled,
-		Remote: true,
+		Remote:     true,
 	})
 
 	request := httptest.NewRequest(http.MethodPost, "/cep", strings.NewReader(`{"cep":"86027410"}`))
