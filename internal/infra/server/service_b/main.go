@@ -54,7 +54,7 @@ func main() {
 	log.Printf("service B listening at %s", port)
 	if err := lifecycle.Serve(ctx, server); err != nil {
 		log.Printf("service B stopped: %v", err)
-		os.Exit(1)
+		return
 	}
 }
 
