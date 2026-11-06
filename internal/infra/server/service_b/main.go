@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/dto"
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/entity"
@@ -37,48 +38,7 @@ func main() {
 	tracer := otel.Tracer("service-b")
 	client := httpClient.NewHttpClient()
 
-	r := chi.NewRouter()
-	r.Use(middleware.Logger)
-	r.Post("/cep", func(w http.ResponseWriter, request *http.Request) {
-		var cep entity.Cep
-		if err := json.NewDecoder(request.Body).Decode(&cep); err != nil {
-			http.Error(w, "invalid JSON", http.StatusBadRequest)
-			return
-		}
-
-		cepCtx, cepSpan := tracer.Start(request.Context(), "Busca_CEP")
-		var location entity.CepIn
-		cepErr := rules.NewCepRules(client).Exec(cepCtx, cep.Value, &location)
-		if cepErr != nil {
-			cepSpan.SetStatus(codes.Error, cepErr.Message)
-			cepSpan.End()
-			util.WriteResponse(w, cepErr.Code, cepErr.Message)
-			return
-		}
-		cepSpan.End()
-
-		key := os.Getenv("WEATHER_API_KEY")
-		if key == "" {
-			util.WriteResponse(w, http.StatusInternalServerError, "weather api key not found")
-			return
-		}
-
-		weatherCtx, weatherSpan := tracer.Start(request.Context(), "Busca_Temperatura")
-		weatherSpan.SetAttributes(attribute.String("weather.city", location.City))
-		defer weatherSpan.End()
-
-		var output dto.OutDto
-		if weatherErr := rules.NewWeatherUseCase(client).Exec(weatherCtx, key, location.City, &output); weatherErr != nil {
-			weatherSpan.SetStatus(codes.Error, weatherErr.Message)
-			util.WriteResponse(w, weatherErr.Code, weatherErr.Message)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		if err := json.NewEncoder(w).Encode(output); err != nil {
-			log.Printf("Service B response encoding failed: %v", err)
-		}
-	})
+	r := newRouter(tracer, client, os.Getenv("WEATHER_API_KEY"))
 
 	server := &http.Server{
 		Addr:              ":8181",
@@ -108,4 +68,52 @@ func main() {
 	if err := shutdownTracer(shutdownCtx); err != nil {
 		log.Printf("Service B tracer shutdown failed: %v", err)
 	}
+}
+
+// newRouter keeps request handling testable without initializing a live collector.
+func newRouter(tracer trace.Tracer, client *http.Client, weatherAPIKey string) http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Post("/cep", func(w http.ResponseWriter, request *http.Request) {
+		var cep entity.Cep
+		if err := json.NewDecoder(request.Body).Decode(&cep); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		cepCtx, cepSpan := tracer.Start(request.Context(), "Busca_CEP")
+		var location entity.CepIn
+		cepErr := rules.NewCepRules(client).Exec(cepCtx, cep.Value, &location)
+		if cepErr != nil {
+			cepSpan.SetStatus(codes.Error, cepErr.Message)
+			cepSpan.End()
+			util.WriteResponse(w, cepErr.Code, cepErr.Message)
+			return
+		}
+		cepSpan.End()
+
+		key := weatherAPIKey
+		if key == "" {
+			util.WriteResponse(w, http.StatusInternalServerError, "weather api key not found")
+			return
+		}
+
+		weatherCtx, weatherSpan := tracer.Start(request.Context(), "Busca_Temperatura")
+		weatherSpan.SetAttributes(attribute.String("weather.city", location.City))
+		defer weatherSpan.End()
+
+		var output dto.OutDto
+		if weatherErr := rules.NewWeatherUseCase(client).Exec(weatherCtx, key, location.City, &output); weatherErr != nil {
+			weatherSpan.SetStatus(codes.Error, weatherErr.Message)
+			util.WriteResponse(w, weatherErr.Code, weatherErr.Message)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if err := json.NewEncoder(w).Encode(output); err != nil {
+			log.Printf("Service B response encoding failed: %v", err)
+		}
+	})
+
+	return r
 }
