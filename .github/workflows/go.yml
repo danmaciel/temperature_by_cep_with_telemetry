@@ -1,0 +1,34 @@
+name: Go Quality Checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify formatting
+        run: test -z "$(gofmt -l internal)"
+      - name: Run tests with race detector
+        run: go test -race ./...
+      - name: Build services
+        run: |
+          go build ./internal/infra/server/service_a
+          go build ./internal/infra/server/service_b
+      - name: Vet
+        run: go vet ./...

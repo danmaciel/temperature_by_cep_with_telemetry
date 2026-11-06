@@ -52,7 +52,7 @@ func main() {
 		var cep entity.Cep
 
 		propagator := otel.GetTextMapPropagator()
-		ctxTracer := propagator.Extract(ctx, propagation.HeaderCarrier(r.Header))
+		ctxTracer := propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 
 		err := json.NewDecoder(r.Body).Decode(&cep)
 		if err != nil {
@@ -66,14 +66,14 @@ func main() {
 		cepRules := rules.NewCepRules(clientHttp)
 
 		var cepModel entity.CepIn
-		errCepIn := cepRules.Exec(cep.Value, &cepModel)
+		errCepIn := cepRules.Exec(ctxTracer, cep.Value, &cepModel)
 		span.End()
 		if errCepIn != nil {
 			util.WriteResponse(w, errCepIn.Code, errCepIn.Message)
 			return
 		}
 
-		_, span2 := tracer.Start(ctxTracer, "Busca_Temperatura", trace.WithSpanKind(trace.SpanKindClient))
+		weatherCtx, span2 := tracer.Start(ctxTracer, "Busca_Temperatura", trace.WithSpanKind(trace.SpanKindClient))
 		span2.SetAttributes(attribute.String("span.type", "Busca_Temperatura"))
 
 		defer span2.End()
@@ -86,7 +86,7 @@ func main() {
 		}
 
 		var dto dto.OutDto
-		errWeather := weatherUseCase.Exec(key, cepModel.City, &dto)
+		errWeather := weatherUseCase.Exec(weatherCtx, key, cepModel.City, &dto)
 
 		if errWeather != nil {
 			util.WriteResponse(w, errWeather.Code, errWeather.Message)
