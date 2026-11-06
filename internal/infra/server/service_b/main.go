@@ -3,19 +3,20 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/dto"
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/entity"
@@ -26,100 +27,85 @@ import (
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt)
-
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
-
-	r := chi.NewRouter()
-	r.Use(middleware.Logger)
-
-	shutdown, err := provider.InitProvider("Service_B")
+	shutdownTracer, err := provider.InitProvider("service-b")
 	if err != nil {
 		log.Fatal(err)
 	}
+	tracer := otel.Tracer("service-b")
+	client := httpClient.NewHttpClient()
 
-	defer func() {
-		if err := shutdown(ctx); err != nil {
-			log.Fatal("failed to shutdown TracerProvider: %w", err)
-		}
-	}()
-
-	tracer := otel.GetTracerProvider().Tracer("SERVICE_B")
-	r.Post("/cep", func(w http.ResponseWriter, r *http.Request) {
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Post("/cep", func(w http.ResponseWriter, request *http.Request) {
 		var cep entity.Cep
-
-		propagator := otel.GetTextMapPropagator()
-		ctxTracer := propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
-
-		err := json.NewDecoder(r.Body).Decode(&cep)
-		if err != nil {
-			http.Error(w, "Erro ao decodificar o JSON", http.StatusBadRequest)
-			return
-		}
-		ctxTracer, span := tracer.Start(ctxTracer, "Busca_CEP", trace.WithSpanKind(trace.SpanKindClient))
-
-		clientHttp := httpClient.NewHttpClient()
-
-		cepRules := rules.NewCepRules(clientHttp)
-
-		var cepModel entity.CepIn
-		errCepIn := cepRules.Exec(ctxTracer, cep.Value, &cepModel)
-		span.End()
-		if errCepIn != nil {
-			util.WriteResponse(w, errCepIn.Code, errCepIn.Message)
+		if err := json.NewDecoder(request.Body).Decode(&cep); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
 
-		weatherCtx, span2 := tracer.Start(ctxTracer, "Busca_Temperatura", trace.WithSpanKind(trace.SpanKindClient))
-		span2.SetAttributes(attribute.String("span.type", "Busca_Temperatura"))
+		cepCtx, cepSpan := tracer.Start(request.Context(), "Busca_CEP")
+		var location entity.CepIn
+		cepErr := rules.NewCepRules(client).Exec(cepCtx, cep.Value, &location)
+		if cepErr != nil {
+			cepSpan.SetStatus(codes.Error, cepErr.Message)
+			cepSpan.End()
+			util.WriteResponse(w, cepErr.Code, cepErr.Message)
+			return
+		}
+		cepSpan.End()
 
-		defer span2.End()
-		weatherUseCase := rules.NewWeatherUseCase(clientHttp)
 		key := os.Getenv("WEATHER_API_KEY")
-
 		if key == "" {
 			util.WriteResponse(w, http.StatusInternalServerError, "weather api key not found")
 			return
 		}
 
-		var dto dto.OutDto
-		errWeather := weatherUseCase.Exec(weatherCtx, key, cepModel.City, &dto)
+		weatherCtx, weatherSpan := tracer.Start(request.Context(), "Busca_Temperatura")
+		weatherSpan.SetAttributes(attribute.String("weather.city", location.City))
+		defer weatherSpan.End()
 
-		if errWeather != nil {
-			util.WriteResponse(w, errWeather.Code, errWeather.Message)
+		var output dto.OutDto
+		if weatherErr := rules.NewWeatherUseCase(client).Exec(weatherCtx, key, location.City, &output); weatherErr != nil {
+			weatherSpan.SetStatus(codes.Error, weatherErr.Message)
+			util.WriteResponse(w, weatherErr.Code, weatherErr.Message)
 			return
 		}
 
-		result, errOnJson := json.Marshal(dto)
-
-		if errOnJson != nil {
-			util.WriteResponse(w, http.StatusInternalServerError, "error on generate json from data")
-			return
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if err := json.NewEncoder(w).Encode(output); err != nil {
+			log.Printf("Service B response encoding failed: %v", err)
 		}
-
-		util.GetResponseHeader(w)
-		w.Write(result)
-
 	})
 
+	server := &http.Server{
+		Addr:              ":8181",
+		Handler:           otelhttp.NewHandler(r, "service-b-http"),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	serverErrors := make(chan error, 1)
 	go func() {
-		fmt.Println("Serviço B escutando na porta 8181...")
-		if err := http.ListenAndServe(":8181", r); err != nil {
-			log.Fatal(err)
+		log.Println("Service B listening on :8181")
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErrors <- err
 		}
 	}()
 
 	select {
-	case <-sigCh:
-		log.Println("Shutting down gracefully, CTRL+C pressed...")
 	case <-ctx.Done():
-		log.Println("Shutting down due to other reason...")
+		log.Println("Service B stopping")
+	case err := <-serverErrors:
+		log.Printf("Service B server failed: %v", err)
 	}
 
-	_, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Service B graceful shutdown failed: %v", err)
+	}
+	if err := shutdownTracer(shutdownCtx); err != nil {
+		log.Printf("Service B tracer shutdown failed: %v", err)
+	}
 }

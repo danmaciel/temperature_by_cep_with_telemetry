@@ -1,8 +1,11 @@
 receivers:
   otlp:
     protocols:
-      http:
       grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch: {}
 
 exporters:
   zipkin:
@@ -12,4 +15,5 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
+      processors: [batch]
       exporters: [zipkin]

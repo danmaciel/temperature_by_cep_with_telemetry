@@ -23,7 +23,9 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Verify formatting
-        run: test -z "$(gofmt -l internal)"
+        run: |
+          gofmt -l internal
+          test -z "$(gofmt -l internal)"
       - name: Run tests with race detector
         run: go test -race ./...
       - name: Build services
@@ -32,3 +34,18 @@ jobs:
           go build ./internal/infra/server/service_b
       - name: Vet
         run: go vet ./...
+
+  containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Validate Compose configuration
+        env:
+          WEATHER_API_KEY: ci-dummy-only
+        run: docker compose config --quiet
+      - name: Build container images
+        env:
+          WEATHER_API_KEY: ci-dummy-only
+        run: docker compose build service_a service_b

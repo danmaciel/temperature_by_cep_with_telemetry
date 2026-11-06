@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
-	"time"
+	"os"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -11,46 +11,34 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
+// InitProvider exports traces to the OTLP collector on the internal Docker network.
+// OTLP gRPC uses cleartext only for the local, container-to-container demo.
 func InitProvider(serviceName string) (func(context.Context) error, error) {
 	ctx := context.Background()
+	res, err := resource.New(ctx, resource.WithAttributes(semconv.ServiceName(serviceName)))
+	if err != nil {
+		return nil, fmt.Errorf("create tracer resource: %w", err)
+	}
 
-	res, err := resource.New(ctx,
-		resource.WithAttributes(
-			semconv.ServiceName(serviceName),
-		),
+	endpoint := os.Getenv("OTEL_COLLECTOR_ENDPOINT")
+	if endpoint == "" {
+		endpoint = "otel-collector:4317"
+	}
+	exporter, err := otlptracegrpc.New(ctx,
+		otlptracegrpc.WithEndpoint(endpoint),
+		otlptracegrpc.WithInsecure(),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create resource: %w", err)
+		return nil, fmt.Errorf("create OTLP trace exporter: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	conn, err := grpc.NewClient("otel-collector:4317",
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gRPC connection to collector: %w", err)
-	}
-
-	traceExporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create trace exporter: %w", err)
-	}
-
-	bsp := sdktrace.NewBatchSpanProcessor(traceExporter)
-	tracerProvider := sdktrace.NewTracerProvider(
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(res),
-		sdktrace.WithSpanProcessor(bsp),
+		sdktrace.WithBatcher(exporter),
 	)
-	otel.SetTracerProvider(tracerProvider)
-
+	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
-
-	return tracerProvider.Shutdown, nil
+	return tp.Shutdown, nil
 }
