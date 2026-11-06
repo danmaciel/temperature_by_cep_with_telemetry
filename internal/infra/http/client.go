@@ -16,6 +16,6 @@ func NewHttpClient() *http.Client {
 		Transport: otelhttp.NewTransport(http.DefaultTransport, otelhttp.WithFilter(func(r *http.Request) bool {
 			return r.URL.Hostname() != "api.weatherapi.com"
 		})),
-		Timeout:   15 * time.Second,
+		Timeout: 15 * time.Second,
 	}
 }
