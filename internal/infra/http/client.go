@@ -1,21 +1,14 @@
 package http
 
 import (
-	"crypto/tls"
 	"net/http"
 	"time"
 )
 
+// NewHttpClient relies on Go's default TLS certificate verification.
+// Requests are bounded so a remote API cannot hang the service indefinitely.
 func NewHttpClient() *http.Client {
-	tr := &http.Transport{
-		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
-		ForceAttemptHTTP2: true,
-	}
 	return &http.Client{
-		Transport: tr,
-		Timeout:   50 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return nil
-		},
+		Timeout: 15 * time.Second,
 	}
 }
