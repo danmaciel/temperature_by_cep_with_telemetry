@@ -58,7 +58,7 @@ func main() {
 			return
 		}
 
-		runServiceB(ctx, w, cep)
+		runServiceB(r.Context(), w, cep)
 	})
 
 	go func() {
@@ -93,7 +93,7 @@ func runServiceB(ctx context.Context, w http.ResponseWriter, cep entity.Cep) {
 
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
-	client := http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
+	client := http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport), Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 
 	if err != nil {
