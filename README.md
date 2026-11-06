@@ -1,65 +1,117 @@
-# API em Golang que retorna a temperatura com telemetria
+# Temperatura por CEP com OpenTelemetry
 
-Sistema que recebe um CEP e retorna a temperatura em Celsius, Fahrenheit e Kelvin, por meio de um CEP de entrada e utiliza telemetria via OpenTelemetry e Zipkin
+Exemplo em **Go** de comunicação entre dois serviços HTTP, consulta às APIs ViaCEP e WeatherAPI e rastreamento distribuído com **OpenTelemetry Collector + Zipkin**.
 
-O retorno dos dados e no formato JSON e na seguinte estrutura:
-```
-{ "city: "São Paulo", "temp_C": 28.5, "temp_F": 28.5, "temp_K": 28.5 }
-```
+O projeto demonstra propagação do contexto W3C (`traceparent`), spans distribuídos e encerramento gracioso dos servidores. É um laboratório de integração e observabilidade; não é uma plataforma de produção.
 
-Onde:
+## Executar com Docker Compose
 
-```
-city   = a cidade do cep pesquisado 
-temp_c = temperatura em Celsius
-temp_f = temperatura em Farenheit
-temp_k = temperatura em Kelvin
+Requisitos: Docker Engine com Docker Compose v2 e uma chave pessoal da [WeatherAPI](https://www.weatherapi.com/).
+
+```bash
+cp .env.example .env
+# Substitua o valor de WEATHER_API_KEY em .env pela sua própria chave.
+docker compose up --build -d
 ```
 
-Exemplo de saída:
+O Compose exige `WEATHER_API_KEY` definido. O arquivo `.env` é ignorado pelo Git; nunca inclua chaves reais no repositório.
+
+Exemplo de requisição:
+
+```bash
+curl -X POST http://localhost:8080/cep \
+  -H 'Content-Type: application/json' \
+  -d '{"cep":"86027410"}'
 ```
+
+Exemplo de formato da resposta (temperaturas dependem das condições reais):
+
+```json
 {
-    "city": "Londrina",
-    "temp_c": 25.2,
-    "temp_f": 77.36,
-    "temp_k": 298.2
+  "city": "Londrina",
+  "temp_c": 25.2,
+  "temp_f": 77.36,
+  "temp_k": 298.35
 }
 ```
 
-## O que é necessário para rodar?
+Acesse a interface do Zipkin em **http://localhost:9411/zipkin/**. Pesquise os serviços `service-a` e `service-b` após enviar uma requisição. Exportação de spans é assíncrona e pode levar alguns segundos.
 
-```
-Ter instalado o Go na sua máquina.
-Ter instalado o Docker na sua máquina.
-Cadastro em https://www.weatherapi.com para ter a API key para utilização na aplicação.
-```
+Para desligar:
 
-
-## Como rodar?
-
-Na raiz da aplicação, edite o arquivo docker-compose.yml adicionando em services -> service_b -> environment -> WEATHER_API_KEY e adicione sua key fornecida previamente em weatherapi.com, depois, com o serviço do docker ativo, execute no terminal.
-
-```
-docker-compose up
+```bash
+docker compose down
 ```
 
-Com os serviços iniciados, faça uma requisição do tipo POST para http://localhost:8080/cep passando no corpo o parâmetro CEP na estrutura:
+## Fluxo da arquitetura
 
+```mermaid
+flowchart LR
+    C["Cliente HTTP"] --> A["Serviço A :8080"]
+    A -->|"POST /cep + traceparent"| B["Serviço B :8181"]
+    B -->|"HTTPS"| V["ViaCEP"]
+    B -->|"HTTPS"| W["WeatherAPI"]
+    A -. "OTLP/gRPC" .-> O["OpenTelemetry Collector"]
+    B -. "OTLP/gRPC" .-> O
+    O -->|"Zipkin exporter"| Z["Zipkin :9411"]
 ```
-{
-    "cep": "86027410"
-}
+
+O Serviço A recebe o CEP, valida seu formato e encaminha a requisição ao Serviço B. O Serviço B consulta o endereço do CEP, busca a temperatura da cidade e converte Celsius para Fahrenheit e Kelvin. Os dois serviços exportam spans para o Collector, que os encaminha ao Zipkin.
+
+### Tracing distribuído
+
+```mermaid
+sequenceDiagram
+    participant C as Cliente
+    participant A as Serviço A
+    participant B as Serviço B
+    participant V as ViaCEP
+    participant W as WeatherAPI
+    C->>A: POST /cep
+    Note over A: Span HTTP servidor
+    A->>B: POST /cep + traceparent
+    Note over B: Span HTTP servidor (mesmo trace ID)
+    B->>V: GET /ws/.../json (HTTPS)
+    Note over B: Span lookup-cep
+    V-->>B: Cidade
+    B->>W: GET /v1/current.json (HTTPS)
+    Note over B: Span lookup-weather
+    W-->>B: Temperatura
+    B-->>A: JSON
+    A-->>C: JSON
 ```
 
-Para acessar o ZipKin para a exibição do tracer, abra no browser com o endereço 
+- Os middlewares `otelhttp.NewHandler` criam spans de entrada nos serviços.
+- O transporte HTTP do Serviço A utiliza `otelhttp.NewTransport`, criando um span cliente e propagando `traceparent`.
+- O Serviço B continua o contexto recebido e cria spans internos para consulta ao CEP e ao clima.
+- As chamadas externas usam HTTPS, verificam certificados e possuem timeout. **A chave da WeatherAPI não deve ser registrada como atributo de tracing.**
 
+O endereço do Collector é configurado por `OTEL_COLLECTOR_ENDPOINT` (no Compose: `otel-collector:4317`; fora dele, padrão `localhost:4317`). O exportador OTLP/gRPC utiliza conexão sem TLS apenas **dentro da rede local de desenvolvimento**; para implantação externa, habilite TLS/autenticação.
+
+## Resiliência e execução
+
+- Os servidores escutam nas portas definidas por `HTTP_PORT` e usam `http.Server.Shutdown` com prazo de 10 segundos ao receber SIGTERM/SIGINT.
+- O provedor OpenTelemetry é encerrado com contexto próprio para tentar descarregar spans pendentes.
+- As requisições de saída têm timeout de 15 segundos e respeitam o contexto recebido.
+- O Compose publica somente o Serviço A e o Zipkin, vinculados a `127.0.0.1`. O Serviço B e o Collector permanecem internos.
+- O exemplo não inclui retries, circuit breaker, fila persistente de spans, autenticação entre serviços ou readiness checks; essas seriam melhorias para um ambiente produtivo.
+
+## Desenvolvimento e testes
+
+```bash
+go test -race ./...
+go vet ./...
+gofmt -l internal
 ```
-http://localhost:9411/zipkin/
-```
 
-E execute uma requisição.
-No diretório API na raiz da aplicação, possui um arquivo http que pode ser usado no teste de requisição.
+O GitHub Actions também executa o build dos dois serviços e verifica a sintaxe do Docker Compose. Testes locais verificam cabeçalhos W3C, continuidade do trace ID, cancelamento e parada do servidor.
 
-Depois da requisição realizada, clique algumas vezes no botão "Run Query" até que seja exibido o trace com as informações.
+## Notas técnicas
 
+As versões do Collector e Zipkin estão fixadas no Compose, evitando mudanças inesperadas ao recriar os contêineres. O projeto ainda usa versões de dependências Go declaradas em `go.mod` e requer revisão periódica de atualizações e vulnerabilidades.
 
+O exportador Zipkin do Collector é adequado para este laboratório. Para evoluções futuras, considere avaliar ingestão OTLP direta no backend de observabilidade.
+
+## Licença
+
+Veja [LICENSE](LICENSE).
