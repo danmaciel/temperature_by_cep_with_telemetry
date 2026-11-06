@@ -3,12 +3,14 @@ package http
 import (
 	"net/http"
 	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-// NewHttpClient relies on Go's default TLS certificate verification.
-// Requests are bounded so a remote API cannot hang the service indefinitely.
+// NewHttpClient validates TLS certificates, bounds requests and emits client spans.
 func NewHttpClient() *http.Client {
 	return &http.Client{
-		Timeout: 15 * time.Second,
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Timeout:   15 * time.Second,
 	}
 }
