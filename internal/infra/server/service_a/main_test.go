@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,15 +24,14 @@ func TestServiceAForwardsW3CTraceContext(t *testing.T) {
 	})
 
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()))
-	defer provider.Shutdown(t.Context())
+	defer provider.Shutdown(context.Background())
 	otel.SetTracerProvider(provider)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	var forwardedContext trace.SpanContext
 	downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		forwardedContext = propagation.TraceContext{}.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
-		sc := trace.SpanContextFromContext(forwardedContext)
-		if !sc.IsValid() {
+		forwardedContext = trace.SpanContextFromContext(propagation.TraceContext{}.Extract(r.Context(), propagation.HeaderCarrier(r.Header)))
+		if !forwardedContext.IsValid() {
 			t.Error("expected W3C traceparent propagated to service B")
 		}
 		w.Header().Set("Content-Type", "application/json")
