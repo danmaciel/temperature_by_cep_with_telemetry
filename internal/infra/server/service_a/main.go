@@ -38,7 +38,7 @@ func main() {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if len(cep.Value) != 8 {
+		if !validCEP(cep.Value) {
 			http.Error(w, "invalid zipcode", http.StatusUnprocessableEntity)
 			return
 		}
@@ -73,6 +73,20 @@ func main() {
 	if err := shutdownTracer(shutdownCtx); err != nil {
 		log.Printf("Service A tracer shutdown failed: %v", err)
 	}
+}
+
+// validCEP rejects non-ASCII digits at the public boundary before service B
+// receives a request. Service B retains its independent validation.
+func validCEP(value string) bool {
+	if len(value) != 8 {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		if value[i] < '0' || value[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func runServiceB(ctx context.Context, w http.ResponseWriter, cep entity.Cep) {
