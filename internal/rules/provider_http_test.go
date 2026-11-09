@@ -100,3 +100,42 @@ func TestWeatherHandlesTransportErrorWithoutPanic(t *testing.T) {
 		t.Fatalf("expected HTTP 502 for WeatherAPI transport failure; got %+v", err)
 	}
 }
+
+
+func TestWeatherRejectsIncompleteProviderData(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"empty object", `{}`},
+		{"missing temperature", `{"current":{}}`},
+		{"null current", `{"current":null}`},
+		{"null temperature", `{"current":{"temp_c":null}}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return response(http.StatusOK, tc.body), nil
+			})}
+			var out dto.OutDto
+			err := NewWeatherUseCase(client).Exec(context.Background(), "test-key", "City", &out)
+			if err == nil || err.Code != http.StatusBadGateway {
+				t.Fatalf("expected HTTP 502 for incomplete WeatherAPI response; got %+v", err)
+			}
+		})
+	}
+}
+
+func TestWeatherAcceptsZeroCelsiusAsValidTemperature(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"current":{"temp_c":0}}`), nil
+	})}
+	var out dto.OutDto
+	err := NewWeatherUseCase(client).Exec(context.Background(), "test-key", "City", &out)
+	if err != nil {
+		t.Fatalf("valid zero Celsius must be accepted: %+v", err)
+	}
+	if out.Celsius != 0 || out.Fahrenheit != 32 || out.Kelvin != 273.15 {
+		t.Fatalf("incorrect conversion for zero Celsius: %+v", out)
+	}
+}
