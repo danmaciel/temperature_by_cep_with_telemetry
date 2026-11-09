@@ -101,7 +101,6 @@ func TestWeatherHandlesTransportErrorWithoutPanic(t *testing.T) {
 	}
 }
 
-
 func TestWeatherRejectsIncompleteProviderData(t *testing.T) {
 	cases := []struct {
 		name string
