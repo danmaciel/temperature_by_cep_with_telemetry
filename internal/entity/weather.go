@@ -5,5 +5,5 @@ type Current struct {
 }
 
 type WeatherData struct {
-	Current Current `json:"current"`
+	Current *Current `json:"current"`
 }
