@@ -43,8 +43,11 @@ func (w *Weather) Exec(ctx context.Context, key string, city string, out *dto.Ou
 	if err := json.NewDecoder(res.Body).Decode(&weatherData); err != nil {
 		return &entity.HttpError{Code: http.StatusBadGateway, Message: "invalid weather provider response"}
 	}
+	if weatherData.Current == nil || weatherData.Current.TempC == nil {
+		return &entity.HttpError{Code: http.StatusBadGateway, Message: "incomplete weather provider response"}
+	}
 	out.City = city
-	out.Celsius = weatherData.Current.TempC
+	out.Celsius = *weatherData.Current.TempC
 	out.Fahrenheit = out.Celsius*1.8 + 32
 	out.Kelvin = out.Celsius + 273.15
 	return nil
