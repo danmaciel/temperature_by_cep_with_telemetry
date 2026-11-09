@@ -7,13 +7,20 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-// NewHttpClient validates TLS certificates, bounds requests and emits client spans.
+// NewHttpClient validates TLS certificates, bounds requests and emits client
+// spans for provider calls except WeatherAPI (whose URL carries a secret).
 func NewHttpClient() *http.Client {
+	return newHTTPClientWithTransport(http.DefaultTransport)
+}
+
+// Allow tests to inspect emitted spans using an in-memory transport. The
+// production transport remains the standard TLS-verifying implementation.
+func newHTTPClientWithTransport(base http.RoundTripper) *http.Client {
 	return &http.Client{
-		// WeatherAPI authenticates through a URL query parameter. Do not export
-		// its full URL (and API key) as an HTTP client span attribute.
-		// The surrounding "Busca_Temperatura" span still measures this call.
-		Transport: otelhttp.NewTransport(http.DefaultTransport, otelhttp.WithFilter(func(r *http.Request) bool {
+		// WeatherAPI uses a key in the URL query. Instrumenting its HTTP
+		// request would risk exporting that key as a URL span attribute.
+		// The surrounding manual Busca_Temperatura span remains active.
+		Transport: otelhttp.NewTransport(base, otelhttp.WithFilter(func(r *http.Request) bool {
 			return r.URL.Hostname() != "api.weatherapi.com"
 		})),
 		Timeout: 15 * time.Second,

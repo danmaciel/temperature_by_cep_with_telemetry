@@ -19,7 +19,7 @@ flowchart LR
 
 O Serviço A recebe a requisição e a encaminha ao Serviço B. O Serviço B verifica o CEP, resolve a cidade pelo ViaCEP e consulta a WeatherAPI. Os spans de entrada usam `otelhttp.NewHandler`, e a chamada A → B usa `otelhttp.NewTransport`, que injeta automaticamente o contexto de tracing HTTP. O Serviço B instrumenta as operações `Busca_CEP` e `Busca_Temperatura`.
 
-**Observação de segurança:** a WeatherAPI utiliza uma chave de API na query string. Para não registrar essa chave nos atributos de URL dos spans, a instrumentação automática de cliente HTTP exclui esse host. O span manual `Busca_Temperatura` continua representando a operação, mas não existe um span HTTP automático adicional para a WeatherAPI.
+**Observação de segurança:** a WeatherAPI utiliza uma chave de API na query string. A instrumentação automática de cliente HTTP exclui especificamente `api.weatherapi.com` para evitar que essa URL seja gravada em atributos dos spans. Um teste registra spans em memória e confirma que a chave fictícia não aparece no cenário exercitado, enquanto a chamada ao ViaCEP continua instrumentada. O span manual `Busca_Temperatura` continua representando a operação, mas não existe um span HTTP automático adicional para a WeatherAPI. **Esse teste não garante ausência de segredos em logs, proxies, erros de bibliotecas ou sistemas externos**; não habilite logging de URLs completas contendo credenciais.
 
 ## Executar com Docker Compose
 
