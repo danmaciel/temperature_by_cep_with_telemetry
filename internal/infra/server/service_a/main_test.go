@@ -56,8 +56,8 @@ func TestServiceAForwardsTraceparentToServiceB(t *testing.T) {
 
 func TestValidCEPRequiresEightASCIIDigits(t *testing.T) {
 	cases := []struct {
-		value string
-		valid bool
+		value	string
+		valid	bool
 	}{
 		{"01001000", true},
 		{"00000000", true},
