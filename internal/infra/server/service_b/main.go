@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/dto"
+	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/entity"
 	httpClient "github.com/danmaciel/temperature_by_cep_with_telemetry/internal/infra/http"
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/provider"
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/rules"
