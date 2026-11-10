@@ -99,6 +99,7 @@ O workflow do GitHub Actions verifica formatação Go, testes com detector de co
 
 - Este exemplo não implementa autenticação ou controle de taxa.
 - Os serviços A e B validam independentemente que o CEP contém **oito dígitos ASCII**, impedindo repasse desnecessário de entradas inválidas. O Serviço A repassa os status de erro controlados do Serviço B sem converter um HTTP 502 em sucesso.
+- As duas entradas `POST /cep` limitam o corpo JSON a **1 KiB**, exigem um único valor JSON e devolvem **HTTP 413** para payloads grandes demais e **HTTP 400** para JSON malformado ou valores extras. Essa validação ocorre antes das consultas externas. Os testes não implicam limites para o tamanho das respostas recebidas dos provedores.
 - Falhas externas e respostas incompletas da WeatherAPI (sem `current.temp_c`) retornam erros controlados, como HTTP 502, em vez de apresentar 0 °C como se fosse um dado real. A temperatura 0 °C continua válida quando fornecida explicitamente. Não há retries com backoff nem circuit breaker.
 - O Zipkin e o Collector não constituem observabilidade completa de produção: métricas, logs estruturados e alertas são evoluções possíveis.
 - URLs externas que contenham credenciais não devem ser enviadas integralmente aos sistemas de tracing.
