@@ -82,7 +82,7 @@ sequenceDiagram
     B--)O: Spans OTLP
 ```
 
-Os contextos dos clientes HTTP usam `r.Context()`; se a requisição original for cancelada, o cancelamento também alcança as consultas externas. As chamadas HTTP têm timeout de 15 segundos. O encerramento dos dois serviços captura `SIGINT` e `SIGTERM`, aguarda até 10 segundos pelo fechamento das conexões e faz flush do provedor de tracing.
+Os contextos dos clientes HTTP usam `r.Context()`; se a requisição original for cancelada, o cancelamento também alcança as consultas externas. As chamadas HTTP têm timeout de 15 segundos. **Timeout de transporte ou prazo excedido** na chamada do Serviço A → B ou nas consultas ViaCEP/WeatherAPI agora produz **HTTP 504 Gateway Timeout**. Outras falhas de transporte seguem como **HTTP 502 Bad Gateway**. O cancelamento pelo próprio cliente também interrompe o trabalho pendente, mas o recebimento de uma resposta HTTP pelo cliente desconectado não é garantido. O encerramento dos dois serviços captura `SIGINT` e `SIGTERM`, aguarda até 10 segundos pelo fechamento das conexões e faz flush do provedor de tracing.
 
 O Collector usa uma configuração explícita com receiver OTLP gRPC, processador batch e exporter Zipkin. A comunicação interna com o Collector utiliza gRPC sem TLS **somente na rede privada da demonstração local**; em ambiente não confiável, configure transporte seguro.
 
@@ -100,7 +100,7 @@ O workflow do GitHub Actions verifica formatação Go, testes com detector de co
 - Este exemplo não implementa autenticação ou controle de taxa.
 - Os serviços A e B validam independentemente que o CEP contém **oito dígitos ASCII**, impedindo repasse desnecessário de entradas inválidas. O Serviço A repassa os status de erro controlados do Serviço B sem converter um HTTP 502 em sucesso.
 - As duas entradas `POST /cep` limitam o corpo JSON a **1 KiB**, exigem um único valor JSON e devolvem **HTTP 413** para payloads grandes demais e **HTTP 400** para JSON malformado ou valores extras. Essa validação ocorre antes das consultas externas. Os testes não implicam limites para o tamanho das respostas recebidas dos provedores.
-- Falhas externas e respostas incompletas da WeatherAPI (sem `current.temp_c`) retornam erros controlados, como HTTP 502, em vez de apresentar 0 °C como se fosse um dado real. A temperatura 0 °C continua válida quando fornecida explicitamente. Não há retries com backoff nem circuit breaker.
+- Falhas externas e respostas incompletas da WeatherAPI (sem `current.temp_c`) retornam erros controlados, como HTTP 502; timeouts de rede retornam HTTP 504. Não se apresenta 0 °C como se fosse um dado real. A temperatura 0 °C continua válida quando fornecida explicitamente. Não há retries com backoff nem circuit breaker. 
 - As respostas JSON dos provedores **ViaCEP e WeatherAPI** têm leitura limitada a **64 KiB** por chamada, antes da decodificação. Respostas excessivas, com JSON inválido ou múltiplos valores JSON são tratadas como falhas do provedor (**HTTP 502**). O limite restringe a memória usada para carregar o corpo JSON, mas não é um limite de tamanho de resposta do Service A ao cliente nem protege contra todos os tipos de abuso de recursos.
 - O Zipkin e o Collector não constituem observabilidade completa de produção: métricas, logs estruturados e alertas são evoluções possíveis.
 - URLs externas que contenham credenciais não devem ser enviadas integralmente aos sistemas de tracing.
