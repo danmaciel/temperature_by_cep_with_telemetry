@@ -12,7 +12,7 @@ import (
 func TestUpstreamHTTPStatus(t *testing.T) {
 	tests := []struct {
 		name string
-		err error
+		err  error
 		want int
 	}{
 		{"deadline", context.DeadlineExceeded, http.StatusGatewayTimeout},
