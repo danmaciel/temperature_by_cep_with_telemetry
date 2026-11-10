@@ -19,6 +19,7 @@ import (
 
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/entity"
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/provider"
+	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/util"
 )
 
 func main() {
@@ -33,9 +34,13 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Post("/cep", func(w http.ResponseWriter, request *http.Request) {
-		var cep entity.Cep
-		if err := json.NewDecoder(request.Body).Decode(&cep); err != nil {
-			http.Error(w, "invalid JSON", http.StatusBadRequest)
+		cep, status := util.DecodeCEP(w, request)
+		if status != http.StatusOK {
+			if status == http.StatusRequestEntityTooLarge {
+				http.Error(w, "zipcode request too large", status)
+			} else {
+				http.Error(w, "invalid JSON", status)
+			}
 			return
 		}
 		if !validCEP(cep.Value) {

@@ -92,3 +92,21 @@ func TestServiceBContinuesIncomingTraceForBothLookups(t *testing.T) {
 		}
 	}
 }
+
+func TestServiceBRejectsOversizedCEPBeforeCallingProviders(t *testing.T) {
+	called := false
+	client := &http.Client{Transport: mockTransport(func(*http.Request) (*http.Response, error) {
+		called = true
+		return nil, context.Canceled
+	})}
+	body := `{"cep":"01001000","padding":"` + strings.Repeat("x", 1024) + `"}`
+	request := httptest.NewRequest(http.MethodPost, "/cep", strings.NewReader(body))
+	response := httptest.NewRecorder()
+	newRouter(otel.Tracer("test-limit"), client, "test-key").ServeHTTP(response, request)
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected HTTP 413, got %d: %s", response.Code, response.Body.String())
+	}
+	if called {
+		t.Fatal("oversized request must not call any provider")
+	}
+}
