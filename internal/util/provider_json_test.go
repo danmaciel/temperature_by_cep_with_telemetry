@@ -21,10 +21,10 @@ func TestDecodeProviderJSONAcceptsValidResponse(t *testing.T) {
 
 func TestDecodeProviderJSONEnforcesSizeAndValidJSON(t *testing.T) {
 	tests := []struct {
-		name       string
-		payload    string
-		wantLarge  bool
-		wantError  bool
+		name      string
+		payload   string
+		wantLarge bool
+		wantError bool
 	}{
 		{"valid", `{"value":1}`, false, false},
 		{"oversized object", `{"padding":"` + strings.Repeat("a", int(MaxProviderJSONBytes)) + `"}`, true, true},
