@@ -2,7 +2,6 @@ package rules
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -40,7 +39,7 @@ func (w *Weather) Exec(ctx context.Context, key string, city string, out *dto.Ou
 		return &entity.HttpError{Code: http.StatusBadGateway, Message: "weather provider returned an error"}
 	}
 	var weatherData entity.WeatherData
-	if err := json.NewDecoder(res.Body).Decode(&weatherData); err != nil {
+	if err := util.DecodeProviderJSON(res.Body, &weatherData); err != nil {
 		return &entity.HttpError{Code: http.StatusBadGateway, Message: "invalid weather provider response"}
 	}
 	if weatherData.Current == nil || weatherData.Current.TempC == nil {
