@@ -18,8 +18,8 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/entity"
-	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/util"
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/provider"
+	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/util"
 )
 
 func main() {
