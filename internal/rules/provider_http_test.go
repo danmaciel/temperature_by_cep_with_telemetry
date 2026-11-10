@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/dto"
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/entity"
@@ -165,5 +166,64 @@ func TestWeatherRejectsOversizedProviderResponseWithoutDisclosingAPIKey(t *testi
 	}
 	if strings.Contains(err.Message, secret) {
 		t.Fatal("provider failure exposed WeatherAPI key")
+	}
+}
+
+func TestProviderTimeoutsReturn504WithoutExposingTransportDetails(t *testing.T) {
+	cases := []struct {
+		name string
+		call func(*http.Client) *entity.HttpError
+	}{
+		{"ViaCEP", func(client *http.Client) *entity.HttpError {
+			var location entity.CepIn
+			return NewCepRules(client).Exec(context.Background(), "01001000", &location)
+		}},
+		{"WeatherAPI", func(client *http.Client) *entity.HttpError {
+			var output dto.OutDto
+			return NewWeatherUseCase(client).Exec(context.Background(), "fake-key", "City", &output)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return nil, context.DeadlineExceeded
+			})}
+			err := tc.call(client)
+			if err == nil || err.Code != http.StatusGatewayTimeout {
+				t.Fatalf("expected HTTP 504 for provider timeout, got %+v", err)
+			}
+			if strings.Contains(err.Message, "fake-key") || strings.Contains(err.Message, "deadline exceeded") {
+				t.Fatalf("transport or credential details leaked in error message")
+			}
+		})
+	}
+}
+
+func TestCancelledProviderContextDoesNotCallWeatherAfterViaCEP(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	calls := 0
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})}
+	done := make(chan *entity.HttpError, 1)
+	go func() {
+		var location entity.CepIn
+		done <- NewCepRules(client).Exec(ctx, "01001000", &location)
+	}()
+	// A cancelled request must return promptly; no WeatherAPI request should
+	// be attempted by callers after the CEP lookup has returned an error.
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil || err.Code != http.StatusBadGateway {
+			t.Fatalf("expected controlled HTTP 502 for canceled caller, got %+v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("canceled ViaCEP request did not return promptly")
+	}
+	if calls > 1 {
+		t.Fatalf("expected at most one ViaCEP request, got %d", calls)
 	}
 }

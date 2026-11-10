@@ -31,7 +31,7 @@ func (w *Weather) Exec(ctx context.Context, key string, city string, out *dto.Ou
 	}
 	res, err := w.http.Do(req)
 	if err != nil {
-		return &entity.HttpError{Code: http.StatusBadGateway, Message: "weather provider unavailable"}
+		return &entity.HttpError{Code: util.UpstreamHTTPStatus(err), Message: "weather provider unavailable"}
 	}
 	defer res.Body.Close()
 

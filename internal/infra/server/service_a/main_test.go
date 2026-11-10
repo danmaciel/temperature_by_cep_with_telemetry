@@ -110,3 +110,24 @@ func TestServiceAHidesTransportErrorDetails(t *testing.T) {
 		t.Fatalf("unexpected response details: %q", response.Body.String())
 	}
 }
+
+type failingTransport func(*http.Request) (*http.Response, error)
+
+func (f failingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestServiceAReportsDownstreamTimeoutAs504(t *testing.T) {
+	client := &http.Client{Transport: failingTransport(func(*http.Request) (*http.Response, error) {
+		return nil, context.DeadlineExceeded
+	})}
+	response := httptest.NewRecorder()
+	forwardToServiceB(context.Background(), response, entity.Cep{Value: "01001000"},
+		"http://service-b.invalid/cep", client)
+	if response.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected HTTP 504 for downstream timeout, got %d", response.Code)
+	}
+	if response.Body.String() != "downstream service unavailable\n" {
+		t.Fatalf("unexpected body: %q", response.Body.String())
+	}
+}

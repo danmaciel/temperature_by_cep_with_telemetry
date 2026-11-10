@@ -30,7 +30,7 @@ func (c *Cep) Exec(ctx context.Context, cep string, vc *entity.CepIn) *entity.Ht
 	}
 	res, err := c.http.Do(req)
 	if err != nil {
-		return &entity.HttpError{Code: http.StatusBadGateway, Message: "zipcode provider unavailable"}
+		return &entity.HttpError{Code: util.UpstreamHTTPStatus(err), Message: "zipcode provider unavailable"}
 	}
 	defer res.Body.Close()
 
