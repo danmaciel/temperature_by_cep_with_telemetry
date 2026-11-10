@@ -2,12 +2,12 @@ package rules
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/entity"
+	"github.com/danmaciel/temperature_by_cep_with_telemetry/internal/util"
 )
 
 type Cep struct {
@@ -37,7 +37,7 @@ func (c *Cep) Exec(ctx context.Context, cep string, vc *entity.CepIn) *entity.Ht
 	if res.StatusCode != http.StatusOK {
 		return &entity.HttpError{Code: http.StatusBadGateway, Message: "zipcode provider returned an error"}
 	}
-	if err := json.NewDecoder(res.Body).Decode(vc); err != nil {
+	if err := util.DecodeProviderJSON(res.Body, vc); err != nil {
 		return &entity.HttpError{Code: http.StatusBadGateway, Message: "invalid zipcode provider response"}
 	}
 	if vc.City == "" {
