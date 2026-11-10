@@ -117,7 +117,7 @@ func forwardToServiceB(ctx context.Context, w http.ResponseWriter, cep entity.Ce
 	// otelhttp injects the active span context into the outgoing request.
 	resp, err := client.Do(req)
 	if err != nil {
-		http.Error(w, "downstream service unavailable", http.StatusBadGateway)
+		http.Error(w, "downstream service unavailable", util.UpstreamHTTPStatus(err))
 		return
 	}
 	defer resp.Body.Close()
