@@ -138,3 +138,32 @@ func TestWeatherAcceptsZeroCelsiusAsValidTemperature(t *testing.T) {
 		t.Fatalf("incorrect conversion for zero Celsius: %+v", out)
 	}
 }
+
+func TestCepRejectsOversizedProviderResponse(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"localidade":"Cidade","padding":"`+strings.Repeat("x", 64*1024)+`"}`), nil
+	})}
+	var cep entity.CepIn
+	err := NewCepRules(client).Exec(context.Background(), "01001000", &cep)
+	if err == nil || err.Code != http.StatusBadGateway {
+		t.Fatalf("expected HTTP 502 for oversized ViaCEP response, got %+v", err)
+	}
+}
+
+func TestWeatherRejectsOversizedProviderResponseWithoutDisclosingAPIKey(t *testing.T) {
+	const secret = "fake-secret-do-not-report"
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("key") != secret {
+			t.Error("API key not forwarded to WeatherAPI")
+		}
+		return response(http.StatusOK, `{"current":{"temp_c":25},"padding":"`+strings.Repeat("x", 64*1024)+`"}`), nil
+	})}
+	var out dto.OutDto
+	err := NewWeatherUseCase(client).Exec(context.Background(), secret, "City", &out)
+	if err == nil || err.Code != http.StatusBadGateway {
+		t.Fatalf("expected HTTP 502 for oversized WeatherAPI response, got %+v", err)
+	}
+	if strings.Contains(err.Message, secret) {
+		t.Fatal("provider failure exposed WeatherAPI key")
+	}
+}
