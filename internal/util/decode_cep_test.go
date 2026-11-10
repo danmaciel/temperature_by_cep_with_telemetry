@@ -9,10 +9,10 @@ import (
 
 func TestDecodeCEPBodyLimitsAndSingleJSONValue(t *testing.T) {
 	cases := []struct {
-		name string
-		body string
+		name       string
+		body       string
 		wantStatus int
-		wantCEP string
+		wantCEP    string
 	}{
 		{"valid", `{"cep":"01001000"}`, http.StatusOK, "01001000"},
 		{"trailing JSON", `{"cep":"01001000"} {"cep":"99999999"}`, http.StatusBadRequest, ""},
